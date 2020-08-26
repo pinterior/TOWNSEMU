@@ -369,7 +369,9 @@ void TownsRender::Render16Bit(const TownsCRTC::Layer &layer,const std::vector <u
 	auto ZV=layer.zoom2x.y()/2;
 
 	auto bottomY=this->hei-ZV;
-	for(int y=0; y<layer.sizeOnMonitor.y() && y+layer.originOnMonitor.y()<=bottomY; y+=ZV)
+	for(int y=0; y<layer.sizeOnMonitor.y() && y+layer.originOnMonitor.y()<=bottomY; )
+	{
+	for (int zv = 0; zv < ZV; ++zv, ++y)
 	{
 		auto X=  layer.originOnMonitor.x();
 		auto Y=y+layer.originOnMonitor.y();
@@ -404,14 +406,7 @@ void TownsRender::Render16Bit(const TownsCRTC::Layer &layer,const std::vector <u
 				inLineVRAMOffset+=2;
 			}
 		}
-
-		auto copyPtr=dstLine+(4*this->wid);
-		for(unsigned int zv=1; zv<ZV; ++zv)
-		{
-			std::memcpy(copyPtr,dstLine,dst-dstLine);
-			copyPtr+=(4*this->wid);
-		}
-
+	}
 		lineVRAMOffset+=layer.bytesPerLine;
 	}
 }
