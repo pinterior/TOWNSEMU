@@ -169,6 +169,53 @@ public:
 		}
 
 		void Reset(void);
+
+	private:
+		inline uint16_t bits(int reg, int left, int right) const {
+			uint16_t mask = ((uint32_t{ 1 } << (left - right + 1)) - 1) << right;
+			return (crtcReg[reg] & mask) >> right;
+		}
+		inline bool bit(int reg, int pos) const {
+			return bits(reg, pos, pos) != 0;
+		}
+
+	public:
+		uint16_t hsw1() const { return bits(REG_HSW1, 7, 1); }
+		uint16_t hsw2() const { return bits(REG_HSW2, 7, 1); }
+		uint16_t hst()  const { return bits(REG_HST, 10, 1); }
+		uint16_t vst1() const { return bits(REG_VST1, 4, 0); }
+		uint16_t vst2() const { return bits(REG_VST2, 4, 0); }
+		// eet
+		uint16_t vst()  const { return bits(REG_VST, 10, 0); }
+
+		uint16_t hds(bool one) const { return bits(one ? REG_HDS1 : REG_HDS0, 10, 0); }
+		uint16_t hde(bool one) const { return bits(one ? REG_HDE1 : REG_HDE0, 10, 0); }
+		uint16_t vds(bool one) const { return bits(one ? REG_VDS1 : REG_VDS0, 10, 0); }
+		uint16_t vde(bool one) const { return bits(one ? REG_VDE1 : REG_VDE0, 10, 0); }
+		
+		uint16_t fa(bool one)  const { return bits(one ? REG_FA1  : REG_FA0,  15, 0); }
+		uint16_t haj(bool one) const { return bits(one ? REG_HAJ1 : REG_HAJ0, 10, 0); }
+		uint16_t fo(bool one)  const { return bits(one ? REG_FO1  : REG_FO0,  15, 0); }
+		uint16_t lo(bool one)  const { return bits(one ? REG_LO1  : REG_LO0,  15, 0); }
+
+		// ehaj
+		// evaj
+
+		uint16_t zv(bool one) const { return one ? bits(REG_ZOOM, 15, 12) : bits(REG_ZOOM, 7, 4); }
+		uint16_t zh(bool one) const { return one ? bits(REG_ZOOM, 11,  8) : bits(REG_ZOOM, 3, 0); }
+
+		bool start() const { return bit(REG_CR0, 15); }
+		// esyn
+		// esm
+		bool cen(bool one) const { return one ? bit(REG_CR0, 5) : bit(REG_CR0, 4); }
+		uint16_t cl(bool one) const { return one ? bits(REG_CR0, 3, 2) : bits(REG_CR0, 1, 0); }
+
+		uint16_t scsel()  const { return bits(REG_CR1, 3, 2); }
+		uint16_t clksel() const { return bits(REG_CR1, 1, 0); }
+
+		bool s_pmode() const { return (sifter[0] & 0x10) != 0; }
+		uint8_t s_cl(bool one) const { return one ? ((sifter[0] & 0x0c) >> 2) : (sifter[0] & 0x03); }
+		bool s_plt1() const { return (sifter[1] & 0x10) != 0; }
 	};
 
 	/* For CHASE HQ (VING).

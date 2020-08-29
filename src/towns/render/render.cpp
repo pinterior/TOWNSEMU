@@ -12,10 +12,11 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 << LICENSE */
+#include <algorithm>
 #include <cstring>
+#include <utility>
 #include "cpputil.h"
 #include "render.h"
-
 
 
 TownsRender::TownsRender()
@@ -29,43 +30,236 @@ void TownsRender::Create(int wid,int hei)
 	this->hei=hei;
 	rgba.resize(4*wid*hei);
 }
-void TownsRender::BuildImage(const TownsCRTC &crtc,const TownsPhysicalMemory &physMem)
-{
-	auto renderSize=crtc.GetRenderSize();
-	SetResolution(renderSize.x(),renderSize.y());
 
-	if(true!=crtc.cached)
-	{
-		// Cache crtc setting.
+namespace {
+
+struct layer {
+	int page;
+	uint32_t vramBase;
+	uint32_t startAddress;
+	uint32_t lineOffset;
+	uint32_t fieldMask;
+	uint32_t vramLoMask;
+	uint32_t vramHiMask;
+	uint32_t fetchRatio;
+	uint32_t hZoom;
+	uint32_t vZoom;
+
+	uint32_t haj;
+	uint32_t hds, hde;
+	uint32_t vds, vde;
+
+	uint32_t shifterMask;
+	uint32_t shifterCount;
+
+	bool interlace;
+	uint32_t fieldOffset;
+};
+
+struct screen {
+	uint32_t width;
+	uint32_t height;
+	uint32_t hds;
+	uint32_t vds2x;
+	bool interlace;
+
+	layer layers[2];
+};
+
+
+screen getScreen(const TownsCRTC &crtc) {
+	auto &state = crtc.state;
+	auto clk = crtc.CLKSELtoFreq[state.clksel()];
+
+	auto hds = std::min(state.hds(false), state.hds(true));
+	auto hde = std::max(state.hde(false), state.hde(true));
+	if (hde < hds) {
+		hde = hds + 1;
 	}
 
-	std::memset(rgba.data(),0,rgba.size());
+	auto vlines2x = state.vst() + 1;
+	auto vds2x = std::min(state.vds(false), state.vds(true));
+	auto vde2x = std::max(state.vde(false), state.vde(true));
+	if (vde2x < vds2x) {
+		vde2x = vds2x + 2;
+	}
 
-	if(true==crtc.InSinglePageMode())
+	screen r;
+	if (vlines2x % 2 == 1) { // ???
+		r.interlace = true;
+		r.hds = hds;
+		r.vds2x = vds2x;
+		r.width = hde - hds;
+		r.height = vde2x - vds2x;
+	} else {
+		r.interlace = false;
+		r.hds = hds;
+		r.vds2x = vds2x;
+		r.width = hde - hds;
+		r.height = (vde2x - vds2x) / 2;
+
+		// 498以上では画面が表示されない(?)
+		r.height = std::min(r.height, 497u);
+	}
+
+	for (int i = 0; i < 2; ++i) {
+		layer &l = r.layers[i];
+		bool one = i;
+
+		l.page = static_cast<int>(one);
+		l.vramBase = one ? 0x40000 : 0;
+		l.startAddress = state.fa(one) * 4;
+		l.fieldOffset = state.fo(one) * 4;
+		l.lineOffset = state.lo(one) * 4;
+		l.vramLoMask = state.cen(one) ? 0x3ffff : 0x003ff;
+		l.vramHiMask = state.cen(one) ? 0x00000 : 0x3fc00;
+		l.hZoom = state.zh(one) + 1;
+		l.vZoom = state.zv(one) + 1;
+		l.fetchRatio = 1 << state.cl(one);
+
+		l.haj = state.haj(one) - r.hds;
+		l.hds = state.hds(one) - r.hds;
+		l.hde = state.hde(one) - r.hds;
+		l.vds = 0;
+		l.vde = r.height;
+
+		if (state.s_pmode()) {
+			switch (state.s_cl(one)) {
+			case 1:
+				l.shifterCount = 4;
+				l.shifterMask = 0x0f;
+				break;
+			case 3:
+				l.shifterCount = 16;
+				l.shifterMask = 0xffff;
+				break;
+			default:
+				l.shifterCount = 0;
+				l.shifterMask = 0;
+				break;
+			}
+		}
+		else {
+			switch (state.s_cl(one)) {
+			case 2:
+				l.shifterCount = 8;
+				l.shifterMask = 0xff;
+				break;
+			case 3:
+				l.shifterCount = 16;
+				l.shifterMask = 0xffff;
+				break;
+			default:
+				l.shifterCount = 0;
+				l.shifterMask = 0;
+				break;
+			}
+		}
+	}
+
+	return r;
+}
+
+void render1(std::vector<uint8_t> &rgba, const screen &sc, const TownsCRTC::AnalogPalette &palette, const std::vector<uint8_t> &VRAM) {
+}
+
+void render2(std::vector<uint8_t> &rgba, const screen &sc, int page, const TownsCRTC::AnalogPalette &palette, const std::vector<uint8_t> &VRAM) {
+	auto &layer = sc.layers[page];
+	uint32_t addr = layer.startAddress;
+	int nextLine = layer.vZoom;
+
+	// VDS, VDEをまだ考えていない
+	for (uint32_t y = 0; y < sc.height; ++y) {
+		uint32_t data;
+		uint16_t val;
+		int nextFetch = 1;
+		int nextShift = 1;
+
+		// 剰余について考える
+		// HDS < HAJ のときは壊れた内容が描画されるはず
+		int offset = ((layer.hds - layer.haj) * 4) / (layer.fetchRatio * layer.hZoom);
+
+		for (uint32_t x = layer.hds; x < layer.hde; ++x) {
+			if (--nextFetch == 0) {
+				auto d = (addr & layer.vramHiMask) | ((addr + offset) & layer.vramLoMask);
+				data = cpputil::GetDword(VRAM.data() + layer.vramBase + d);
+				nextFetch = layer.fetchRatio * layer.hZoom;
+				offset += 4;
+			}
+
+			if (--nextShift == 0) {
+				val = data & layer.shifterMask;
+				data >>= layer.shifterCount;
+				nextShift = layer.hZoom;
+			}
+
+			auto dst = rgba.begin() + ((y * sc.width) + x) * 4;
+			switch (layer.shifterCount) {
+			case 4:
+				if (val) {
+					dst[0] = palette.plt16[layer.page][val][0];
+					dst[1] = palette.plt16[layer.page][val][1];
+					dst[2] = palette.plt16[layer.page][val][2];
+					dst[3] = 255;
+				}
+				break;
+			case 8:
+				if (val) {
+					dst[0] = palette.plt256[val][0];
+					dst[1] = palette.plt256[val][1];
+					dst[2] = palette.plt256[val][2];
+					dst[3] = 255;
+				}
+				break;
+			case 16:
+				if ((val & 0x8000) == 0) {
+					dst[0] = ((val & 0x03e0) >>  5) << 3;
+					dst[1] = ((val & 0x7c00) >> 10) << 3;
+					dst[2] = ((val & 0x001f)      ) << 3;
+					dst[3] = 255;
+				}
+				break;
+			}
+		}
+		if (--nextLine == 0) {
+			addr += layer.lineOffset;
+			nextLine = layer.vZoom;
+		}
+	}
+}
+
+}
+
+void TownsRender::BuildImage(const TownsCRTC &crtc,const TownsPhysicalMemory &physMem)
+{
+	screen sc = getScreen(crtc);
+	SetResolution(sc.width, sc.height);
+
+	std::memset(rgba.data(), 0, rgba.size());
+
+	if(crtc.InSinglePageMode())
 	{
-		if(true==crtc.state.ShowPage(0))
+		if (crtc.state.ShowPage(0))
 		{
 			TownsCRTC::Layer layer;
-			crtc.MakePageLayerInfo(layer,0);
-			Render<VRAM1Trans>(0,layer,crtc.state.palette,crtc.chaseHQPalette,physMem.state.VRAM,false);
+			crtc.MakePageLayerInfo(layer, 0);
+			Render<VRAM1Trans>(0, layer, crtc.state.palette, crtc.chaseHQPalette, physMem.state.VRAM, false);
 		}
 	}
 	else
 	{
-		TownsCRTC::Layer layer[2];
-		crtc.MakePageLayerInfo(layer[0],0);
-		crtc.MakePageLayerInfo(layer[1],1);
-		auto priorityPage=crtc.GetPriorityPage();
-		if(true==crtc.state.ShowPage(1-priorityPage))
+		auto priorityPage = crtc.GetPriorityPage();
+		if (crtc.state.ShowPage(1 - priorityPage))
 		{
-			Render<VRAM0Trans>(1-priorityPage,layer[1-priorityPage],crtc.state.palette,crtc.chaseHQPalette,physMem.state.VRAM,false);
+			render2(rgba, sc, 1 - priorityPage, crtc.state.palette, physMem.state.VRAM);
 		}
-		if(true==crtc.state.ShowPage(priorityPage))
+		if (crtc.state.ShowPage(priorityPage))
 		{
-			Render<VRAM0Trans>(priorityPage,  layer[priorityPage]  ,crtc.state.palette,crtc.chaseHQPalette,physMem.state.VRAM,true);
+			render2(rgba, sc, priorityPage, crtc.state.palette, physMem.state.VRAM);
 		}
 	}
 }
+
 void TownsRender::SetResolution(int wid,int hei)
 {
 	if(wid!=this->wid || hei!=this->hei)
@@ -73,6 +267,7 @@ void TownsRender::SetResolution(int wid,int hei)
 		Create(wid,hei);
 	}
 }
+
 TownsRender::Image TownsRender::GetImage(void) const
 {
 	Image img;
