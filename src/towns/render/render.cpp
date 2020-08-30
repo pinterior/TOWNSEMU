@@ -177,7 +177,7 @@ void render2(std::vector<uint8_t> &rgba, const screen &sc, int page, const Towns
 
 		// è—]‚É‚Â‚¢‚Äl‚¦‚é
 		// HDS < HAJ ‚Ì‚Æ‚«‚Í‰ó‚ê‚½“à—e‚ª•`‰æ‚³‚ê‚é‚Í‚¸
-		int offset = ((layer.hds - layer.haj) * 4) / (layer.fetchRatio * layer.hZoom);
+		int offset = (layer.hds - layer.haj) / (layer.fetchRatio * layer.hZoom) * 4;
 
 		for (uint32_t x = layer.hds; x < layer.hde; ++x) {
 			if (--nextFetch == 0) {
