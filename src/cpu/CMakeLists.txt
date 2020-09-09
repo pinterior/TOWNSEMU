@@ -2,6 +2,7 @@ add_library(cpu
 cpu.h
 cpu.cpp
 i486.h
+i486arith.h
 i486.cpp
 i487.cpp
 i486inst.h

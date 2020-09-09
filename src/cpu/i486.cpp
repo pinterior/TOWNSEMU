@@ -12,11 +12,13 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 << LICENSE */
+#include <cstdint>
 #include <iostream>
 #include <algorithm>
 
 #include "cpputil.h"
 #include "i486.h"
+#include "i486arith.h"
 
 
 const char *const i486DX::Reg8Str[8]=
@@ -1772,30 +1774,21 @@ void i486DX::DecrementWordOrDword(unsigned int operandSize,unsigned int &value)
 }
 void i486DX::DecrementDword(unsigned int &value)
 {
-	--value;
-	SetOF(value==0x7FFFFFFF);
-	SetSF(0!=(value&0x80000000));
-	SetZF(0==value);
-	SetAF(0x0F==(value&0x0F));
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::sub<uint32_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::DecrementWord(unsigned int &value)
 {
-	value=((value-1)&0xFFFF);
-	SetOF(value==0x7FFF);
-	SetSF(0!=(value&0x8000));
-	SetZF(0==value);
-	SetAF(0x0F==(value&0x0F));
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::sub<uint16_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::DecrementByte(unsigned int &value)
 {
-	value=((value-1)&0xFF);
-	SetOF(value==0x7F);
-	SetSF(0!=(value&0x80));
-	SetZF(0==value);
-	SetAF(0x0F==(value&0x0F));
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::sub<uint8_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::DecrementWithMask(unsigned int &value,unsigned int mask,unsigned int signBit)
 {
@@ -1820,30 +1813,21 @@ void i486DX::IncrementWordOrDword(unsigned int operandSize,unsigned int &value)
 }
 void i486DX::IncrementDword(unsigned int &value)
 {
-	SetAF(0x0F==(value&0x0F));
-	++value;
-	SetOF(value==0x80000000);
-	SetSF(0!=(value&0x80000000));
-	SetZF(0==value);
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::add<uint32_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::IncrementWord(unsigned int &value)
 {
-	SetAF(0x0F==(value&0x0F));
-	value=(value+1)&0xffff;
-	SetOF(value==0x8000);
-	SetSF(0!=(value&0x8000));
-	SetZF(0==value);
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::add<uint16_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::IncrementByte(unsigned int &value)
 {
-	SetAF(0x0F==(value&0x0F));
-	value=(value+1)&0xff;
-	SetOF(value==0x80);
-	SetSF(0!=(value&0x80));
-	SetZF(0==value);
-	SetPF(CheckParity(value&0xFF));
+	auto r = arith::add<uint8_t, arith::carry::None>(value, 1, state.EFLAGS);
+	value = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::IncrementWithMask(unsigned int &value,unsigned int mask,unsigned int signBit)
 {
@@ -1870,60 +1854,21 @@ void i486DX::AddWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::AddDword(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xffffffff;
-	value1=(value1+value2)&0xffffffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x80000000)==(value2&0x80000000) && (prevValue&0x80000000)!=(value1&0x80000000)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x80000000));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F));
-	RaiseCF(value1<prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint32_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AddWord(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xffff;
-	value1=(value1+value2)&0xffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x8000)==(value2&0x8000) && (prevValue&0x8000)!=(value1&0x8000)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x8000));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F));
-	RaiseCF(value1<prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint16_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AddByte(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xff;
-	value1=(value1+value2)&0xff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x80)==(value2&0x80) && (prevValue&0x80)!=(value1&0x80)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x80));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F));
-	RaiseCF(value1<prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint8_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AndWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
@@ -1938,45 +1883,23 @@ void i486DX::AndWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::AndDword(unsigned int &value1,unsigned int value2)
 {
-	value1&=value2;
-	state.EFLAGS&=~(
-		EFLAGS_CARRY|
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_PARITY);
-	RaiseSF(0!=(0x80000000&value1));
-	RaiseZF(0==value1);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint32_t>(value1, value2, arith::ops::And{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AndWord(unsigned int &value1,unsigned int value2)
 {
-	value1&=value2;
-	value1&=0xFFFF;
-	state.EFLAGS&=~(
-		EFLAGS_CARRY|
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_PARITY);
-	RaiseSF(0!=(0x8000&value1));
-	RaiseZF(0==value1);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint16_t>(value1, value2, arith::ops::And{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AndByte(unsigned int &value1,unsigned int value2)
 {
-	value1&=value2;
-	value1&=0xFF;
-	state.EFLAGS&=~(
-		EFLAGS_CARRY|
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_PARITY);
-	RaiseSF(0!=(0x80&value1));
-	RaiseZF(0==value1);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint8_t>(value1, value2, arith::ops::And{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
+
 void i486DX::SubByteWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
 	if(8==operandSize)
@@ -1998,60 +1921,21 @@ void i486DX::SubWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::SubDword(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xffffffff;
-	value1=(value1-value2)&0xffffffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x80000000)!=(value2&0x80000000) && (prevValue&0x80000000)!=(value1&0x80000000)); // Source values have different signs, but the sign flipped.
-	RaiseSF(0!=(value1&0x80000000));
-	RaiseZF(0==value1);
-	RaiseAF((prevValue&0xF)<(value1&0xF));
-	RaiseCF(value1>prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint32_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::SubWord(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xffff;
-	value1=(value1-value2)&0xffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x8000)!=(value2&0x8000) && (prevValue&0x8000)!=(value1&0x8000)); // Source values have different signs, but the sign flipped.
-	RaiseSF(0!=(value1&0x8000));
-	RaiseZF(0==value1);
-	RaiseAF((prevValue&0xF)<(value1&0xF));
-	RaiseCF(value1>prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint16_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::SubByte(unsigned int &value1,unsigned int value2)
 {
-	auto prevValue=value1&0xff;
-	value1=(value1-value2)&0xff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x80)!=(value2&0x80) && (prevValue&0x80)!=(value1&0x80)); // Source values have different signs, but the sign flipped.
-	RaiseSF(0!=(value1&0x80));
-	RaiseZF(0==value1);
-	RaiseAF((prevValue&0xF)<(value1&0xF));
-	RaiseCF(value1>prevValue);
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint8_t>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AdcWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
@@ -2066,63 +1950,21 @@ void i486DX::AdcWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::AdcDword(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xffffffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	value1=(value1+value2+carry)&0xffffffff;
-	RaiseOF((prevValue&0x80000000)==(value2&0x80000000) && (prevValue&0x80000000)!=(value1&0x80000000)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x80000000));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F) || (0!=carry && (prevValue&0x0F)==(value1&0x0F))); // 2nd condition for 0xFFFFFFFF+0xFFFFFFFF+1
-	RaiseCF(value1<prevValue || (0!=carry && value1==prevValue)); // 2nd condition for 0xFFFFFFFF+0xFFFFFFFF+1
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint32_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AdcWord(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xffff;
-	value1=(value1+value2+carry)&0xffff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x8000)==(value2&0x8000) && (prevValue&0x8000)!=(value1&0x8000)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x8000));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F) || (0!=carry && (prevValue&0x0F)==(value1&0x0F))); // 2nd condition for 0xFFFF+0xFFFF+1
-	RaiseCF(value1<prevValue || (0!=carry && value1==prevValue)); // 2nd condition for 0xFFFF+0xFFFF+1
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint16_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::AdcByte(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xff;
-	value1=(value1+value2+carry)&0xff;
-	state.EFLAGS&=~(
-		EFLAGS_OVERFLOW|
-		EFLAGS_SIGN|
-		EFLAGS_ZERO|
-		EFLAGS_AUX_CARRY|
-		EFLAGS_CARRY|
-		EFLAGS_PARITY
-	);
-	RaiseOF((prevValue&0x80)==(value2&0x80) && (prevValue&0x80)!=(value1&0x80)); // Two sources have same sign, but the result sign is different.
-	RaiseSF(0!=(value1&0x80));
-	RaiseZF(0==value1);
-	RaiseAF((value1&0x0F)<(prevValue&0x0F) || (0!=carry && (prevValue&0x0F)==(value1&0x0F))); // 2nd condition for 0xFF+0xFF+1
-	RaiseCF(value1<prevValue || (0!=carry && value1==prevValue)); // 2nd condition for 0xFF+0xFF+1
-	RaisePF(CheckParity(value1&0xFF));
+	auto r = arith::add<uint8_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::SbbWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
@@ -2137,39 +1979,21 @@ void i486DX::SbbWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::SbbDword(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xffffffff;
-	value1=(value1-value2-carry)&0xffffffff;
-	SetOF((prevValue&0x80000000)!=(value2&0x80000000) && (prevValue&0x80000000)!=(value1&0x80000000)); // Source values have different signs, but the sign flipped.
-	SetSF(0!=(value1&0x80000000));
-	SetZF(0==value1);
-	SetAF((prevValue&0xF)<(value1&0xF) || (0!=carry && (prevValue&0x0F)==(value1&0x0F)));
-	SetCF(value1>prevValue || (0!=carry && value1==prevValue));
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint32_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::SbbWord(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xffff;
-	value1=(value1-value2-carry)&0xffff;
-	SetOF((prevValue&0x8000)!=(value2&0x8000) && (prevValue&0x8000)!=(value1&0x8000)); // Source values have different signs, but the sign flipped.
-	SetSF(0!=(value1&0x8000));
-	SetZF(0==value1);
-	SetAF((prevValue&0xF)<(value1&0xF) || (0!=carry && (prevValue&0x0F)==(value1&0x0F)));
-	SetCF(value1>prevValue || (0!=carry && value1==prevValue));
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint16_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::SbbByte(unsigned int &value1,unsigned int value2)
 {
-	auto carry=(0!=(state.EFLAGS&EFLAGS_CARRY) ? 1 : 0);
-	auto prevValue=value1&0xff;
-	value1=(value1-value2-carry)&0xff;
-	SetOF((prevValue&0x80)!=(value2&0x80) && (prevValue&0x80)!=(value1&0x80)); // Source values have different signs, but the sign flipped.
-	SetSF(0!=(value1&0x80));
-	SetZF(0==value1);
-	SetAF((prevValue&0xF)<(value1&0xF) || (0!=carry && (prevValue&0x0F)==(value1&0x0F)));
-	SetCF(value1>prevValue || (0!=carry && value1==prevValue));
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::sub<uint8_t, arith::carry::InOut>(value1, value2, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::OrWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
@@ -2184,35 +2008,21 @@ void i486DX::OrWordOrDword(int operandSize,unsigned int &value1,unsigned int val
 }
 void i486DX::OrDword(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1|=value2;
-	SetSF(0!=(0x80000000&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint32_t>(value1, value2, arith::ops::Or{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::OrWord(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1|=value2;
-	value1&=0xFFFF;
-	SetSF(0!=(0x8000&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint16_t>(value1, value2, arith::ops::Or{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::OrByte(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1|=value2;
-	value1&=0xFF;
-	SetSF(0!=(0x80&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint8_t>(value1, value2, arith::ops::Or{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::XorWordOrDword(int operandSize,unsigned int &value1,unsigned int value2)
 {
@@ -2227,35 +2037,21 @@ void i486DX::XorWordOrDword(int operandSize,unsigned int &value1,unsigned int va
 }
 void i486DX::XorDword(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1^=value2;
-	SetSF(0!=(0x80000000&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint32_t>(value1, value2, arith::ops::Xor{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::XorWord(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1^=value2;
-	value1&=0xFFFF;
-	SetSF(0!=(0x8000&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint16_t>(value1, value2, arith::ops::Xor{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 void i486DX::XorByte(unsigned int &value1,unsigned int value2)
 {
-	ClearCFOF();
-	//SetCF(false);
-	//SetOF(false);
-	value1^=value2;
-	value1&=0xFF;
-	SetSF(0!=(0x80&value1));
-	SetZF(0==value1);
-	SetPF(CheckParity(value1&0xFF));
+	auto r = arith::bitop<uint8_t>(value1, value2, arith::ops::Xor{}, state.EFLAGS);
+	value1 = r.first;
+	state.EFLAGS = r.second;
 }
 
 template <unsigned int valueMask,unsigned int countMask,unsigned int bitLength,unsigned int signBit>
