@@ -14,6 +14,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 << LICENSE */
 #include <iostream>
 #include <algorithm>
+#include <sstream>
 
 #include "device.h"
 #include "townsdef.h"
@@ -27,6 +28,72 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ////////////////////////////////////////////////////////////
 
+std::fstream &TownsSCSI::getHandle(unsigned int selId)
+{
+	auto& h = handles[selId];
+
+	if (!h.is_open()) {
+		h = std::fstream{ state.dev[selId].imageFName, std::ios::binary | std::ios::in | std::ios::out };
+	}
+	return h;
+}
+
+std::vector<uint8_t> TownsSCSI::readFile(unsigned int selId, uint64_t offset, uint64_t length)
+{
+	auto& f = getHandle(selId);
+
+	if (f.is_open()) {
+		std::vector<uint8_t> buf;
+		buf.resize(length);
+
+		f.seekg(offset);
+		if (!f.good()) {
+			std::stringstream msg;
+			msg << "readFile: fstream::seekg(" << offset << ") failed.";
+			Abort(msg.str());
+		}
+
+		f.read(reinterpret_cast<char *>(buf.data()), length);
+		if (!f.good()) {
+			std::stringstream msg;
+			msg << "readFile: fstream::read(_, " << length << ") @ " << offset << " failed.";
+			Abort(msg.str());
+		}
+		return buf;
+	} else {
+		std::stringstream msg;
+		msg << "readFile: cannot open '" << state.dev[selId].imageFName << "'.";
+		Abort(msg.str());
+		return {};
+	}
+}
+
+bool TownsSCSI::writeFile(unsigned int selId, uint64_t offset, uint64_t length, const uint8_t* buf)
+{
+	auto& f = getHandle(selId);
+
+	if (f.is_open()) {
+		f.seekg(offset);
+		if (!f.good()) {
+			std::stringstream msg;
+			msg << "writeFile: fstream::seekg(" << offset << ") failed.";
+			Abort(msg.str());
+		}
+
+		f.write(reinterpret_cast<const char*>(buf), length);
+		if (!f.good()) {
+			std::stringstream msg;
+			msg << "writeFile: fstream::write(_, " << length << ") @ " << offset << " failed.";
+			Abort(msg.str());
+		}
+		return true;
+	} else {
+		std::stringstream msg;
+		msg << "writeFile: cannot open '" << state.dev[selId].imageFName << "'.";
+		Abort(msg.str());
+		return false;
+	}
+}
 
 
 void TownsSCSI::State::PowerOn(void)
@@ -96,6 +163,8 @@ bool TownsSCSI::LoadHardDiskImage(unsigned int scsiId,std::string fName)
 			state.dev[scsiId].imageSize=fSize;
 			state.dev[scsiId].imageFName=fName;
 			state.dev[scsiId].devType=SCSIDEVICE_HARDDISK;
+
+			handles[scsiId] = {};
 			return true;
 		}
 	}
@@ -578,12 +647,9 @@ void TownsSCSI::ExecSCSICommand(void)
 
 					LBA*=HARDDISK_SECTOR_LENGTH;
 					LEN*=HARDDISK_SECTOR_LENGTH;
-					auto bytesTransferred=townsPtr->dmac.DeviceToMemory(
-					    DMACh,
-					    cpputil::ReadBinaryFile(
-					        state.dev[state.selId].imageFName,
-					        LBA+state.bytesTransferred,
-					        LEN-state.bytesTransferred));
+					auto bytesTransferred = townsPtr->dmac.DeviceToMemory(
+						DMACh,
+						readFile(state.selId, LBA + state.bytesTransferred, LEN - state.bytesTransferred));
 					if(0<bytesTransferred)
 					{
 						state.bytesTransferred+=bytesTransferred;
@@ -662,11 +728,7 @@ void TownsSCSI::ExecSCSICommand(void)
 					else
 					{
 						townsPtr->dmac.SetDMATransferEnd(TOWNSDMA_SCSI);
-						if(true==cpputil::WriteBinaryFile(
-						    state.dev[state.selId].imageFName,
-						    LBA+state.bytesTransferred,
-						    (unsigned int)toWrite.size(),
-						    toWrite.data()))
+						if (true == writeFile(state.selId, LBA + state.bytesTransferred, toWrite.size(), toWrite.data()))
 						{
 							state.bytesTransferred+=toWrite.size();
 							if(LEN<=state.bytesTransferred)

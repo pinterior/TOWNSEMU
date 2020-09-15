@@ -2,6 +2,9 @@
 #define SCSI_IS_INCLUDED
 /* { */
 
+#include <array>
+#include <cstdint>
+#include <fstream>
 #include <vector>
 #include <string>
 
@@ -196,6 +199,12 @@ public:
 	std::vector <unsigned char> MakeReadCapacityData(int scsiId) const;
 
 	std::vector <std::string> GetStatusText(void) const;
+
+private:
+	std::array<std::fstream, MAX_NUM_SCSIDEVICES> handles;
+	std::fstream &getHandle(unsigned int selId);
+	std::vector<uint8_t> readFile(unsigned int selId, uint64_t offset, uint64_t length);
+	bool writeFile(unsigned int selId, uint64_t offset, uint64_t length, const uint8_t* buf);
 };
 
 /* } */
