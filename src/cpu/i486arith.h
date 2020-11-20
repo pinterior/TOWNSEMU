@@ -34,7 +34,7 @@ namespace arith {
 			inline flag(flag_type v) : value{ v << P } {}
 
 			// construct from value
-			inline flag(flag_type v, no_shift_t noshift) : value{ v } {}
+			inline flag(flag_type v, no_shift_t no_shift) : value{ v } {}
 
 			static inline flag_type get(flag_type f) {
 				return (f >> P) & 1;
@@ -79,8 +79,6 @@ namespace arith {
 			static_assert(PF::bit < std::numeric_limits<uint8_t>::max(), "PF outside of uint8_t");
 
 			constexpr uint8_t P = PF::bit;
-			constexpr uint8_t Z = ZF::bit;
-			constexpr uint8_t S = SF::bit;
 
 			static const uint8_t ptbl[256] = {
 			   P, 0, 0, P, 0, P, P, 0, 0, P, P, 0, P, 0, 0, P,
@@ -100,6 +98,12 @@ namespace arith {
 			   0, P, P, 0, P, 0, 0, P, P, 0, 0, P, 0, P, P, 0,
 			   P, 0, 0, P, 0, P, P, 0, 0, P, P, 0, P, 0, 0, P
 			};
+
+			static_assert(ZF::bit < std::numeric_limits<uint8_t>::max(), "ZF outside of uint8_t");
+			static_assert(SF::bit < std::numeric_limits<uint8_t>::max(), "SF outside of uint8_t");
+
+			constexpr uint8_t Z = ZF::bit;
+			constexpr uint8_t S = SF::bit;
 
 			constexpr uint8_t ZP = Z | P;
 			constexpr uint8_t SP = S | P;
@@ -122,10 +126,6 @@ namespace arith {
 				S , SP, SP, S , SP, S , S , SP, SP, S , S , SP, S , SP, SP, S ,
 				SP, S , S , SP, S , SP, SP, S , S , SP, SP, S , SP, S , S , SP
 			};
-		}
-
-		inline SZPF szpf_8(uint8_t val) {
-			return szptbl[static_cast<uint8_t>(val)];
 		}
 
 		template<typename T>
@@ -193,6 +193,15 @@ namespace arith {
 
 		inline OF zero_of() {
 			return 0;
+		}
+
+		inline SZPF szpf(uint8_t val) {
+			return szptbl[val];
+		}
+
+		template<typename T>
+		inline SZPF szpf(T val) {
+			return sf(val).value | zf(val).value | pf(val).value;
 		}
 
 		constexpr flag_type nor() {
@@ -287,28 +296,14 @@ namespace arith {
 		D t = D{ a } + D{ b } + D{ c };
 		auto r = static_cast<S>(t);
 
-		if (std::is_same<S, uint8_t>::value) {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					C::template out<S>(t),
-					flags::add_of(a, b, r),
-					flags::add_af(a, b, c),
-					flags::szpf_8(r)
-				));
-		}
-		else {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					C::template out<S>(t),
-					flags::add_of(a, b, r),
-					flags::sf(r),
-					flags::zf(r),
-					flags::add_af(a, b, c),
-					flags::pf(r)
-				));
-		}
+		return std::make_pair(
+			r,
+			flags::update(f,
+				C::template out<S>(t),
+				flags::add_of(a, b, r),
+				flags::add_af(a, b, c),
+				flags::szpf(r)
+			));
 	}
 
 	template<typename S, typename C = carry::Out>
@@ -321,28 +316,14 @@ namespace arith {
 		D t = D{ a } - D{ b } - D{ c };
 		auto r = static_cast<S>(t);
 
-		if (std::is_same<S, uint8_t>::value) {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					C::template out<S>(t),
-					flags::sub_of(a, b, r),
-					flags::sub_af(a, b, c),
-					flags::szpf_8(r)
-				));
-		}
-		else {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					C::template out<S>(t),
-					flags::sub_of(a, b, r),
-					flags::sf(r),
-					flags::zf(r),
-					flags::sub_af(a, b, c),
-					flags::pf(r)
-				));
-		}
+		return std::make_pair(
+			r,
+			flags::update(f,
+				C::template out<S>(t),
+				flags::sub_of(a, b, r),
+				flags::sub_af(a, b, c),
+				flags::szpf(r)
+			));
 	}
 
 	template<typename S, typename O>
@@ -351,27 +332,13 @@ namespace arith {
 		auto b = static_cast<S>(v2);
 		S r = o(a, b);
 
-		if (std::is_same<S, uint8_t>::value) {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					flags::zero_cf(),
-					flags::zero_of(),
-					flags::szpf_8(r)
-				)
-			);
-		}
-		else {
-			return std::make_pair(
-				r,
-				flags::update(f,
-					flags::zero_cf(),
-					flags::zero_of(),
-					flags::sf(r),
-					flags::zf(r),
-					flags::pf(r)
-				)
-			);
-		}
+		return std::make_pair(
+			r,
+			flags::update(f,
+				flags::zero_cf(),
+				flags::zero_of(),
+				flags::szpf(r)
+			)
+		);
 	}
 }
