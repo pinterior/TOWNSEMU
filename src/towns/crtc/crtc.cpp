@@ -589,14 +589,18 @@ unsigned int TownsCRTC::GetPageVRAMAddressOffset(unsigned char page) const
 {
 	// [2] pp. 145
 	auto FA0=state.crtcReg[REG_FA0+page*4];
+	int spriteXor = 0;
+	if (page == 1) {
+		spriteXor = townsPtr->sprite.GetAddressXor();
+	}
 	switch(GetPageBitsPerPixel(page))
 	{
 	case 4:
-		return FA0*4;  // 8 pixels for 1 count.
+		return FA0*4 ^ spriteXor;  // 8 pixels for 1 count.
 	case 8:
-		return FA0*8;  // 8 pixels for 1 count.
+		return FA0*8 ^ spriteXor;  // 8 pixels for 1 count.
 	case 16:
-		return (LowResCrtcIsInSinglePageMode() ? FA0*8 : FA0*4); // 4 pixels or 2 pixels depending on the single-page or 2-page mode.
+		return (LowResCrtcIsInSinglePageMode() ? FA0*8 : FA0*4) ^ spriteXor; // 4 pixels or 2 pixels depending on the single-page or 2-page mode.
 	}
 	return 0;
 }

@@ -12,13 +12,23 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 << LICENSE */
+#include <algorithm>
+
 #include "towns.h"
 #include "townsdef.h"
 #include "cpputil.h"
 #include "sprite.h"
 #include "physmem.h"
 
+namespace {
+	inline unsigned char *vram1(TownsPhysicalMemory *phys) {
+		return phys->state.VRAM.data() + 0x40000;
+	}
 
+	inline unsigned char *spriteRam(TownsPhysicalMemory *phys) {
+		return phys->state.spriteRAM.data();
+	}
+}
 
 void TownsSprite::State::PowerOn(void)
 {
@@ -29,6 +39,8 @@ void TownsSprite::State::PowerOn(void)
 	}
 	spriteBusy=false;
 	screenModeAcceptsSprite=false;
+	writePage = 0;
+	displayPage = 0;
 }
 void TownsSprite::State::Reset(void)
 {
@@ -38,30 +50,6 @@ TownsSprite::TownsSprite(class FMTowns *townsPtr,TownsPhysicalMemory *physMemPtr
 {
 	this->townsPtr=townsPtr;
 	this->physMemPtr=physMemPtr;
-}
-void TownsSprite::Start(void)
-{
-	state.reg[REG_CONTROL1]|=0x80;
-	state.spriteBusy=false;
-	townsPtr->ScheduleDeviceCallBack(*this,townsPtr->crtc.NextVSYNCTime(townsPtr->state.townsTime));
-}
-void TownsSprite::Stop(void)
-{
-	// Shadow of the Beast stops sprite while the sprite state is busy.
-	// Presumably the program is taking its own timing since VSYNC to make sure the sprites are drawn.
-	// However, Tsugaru's sprite is not fully in sync with VSYNC, and it makes the screen stop updating.
-	// The workaround is to check spriteBusy, SPEN, and screenModeAcceptsSprite flags, and
-	// render if the sprite was stopped in the middle of busy period.
-	//
-	// For this purpose, this function needs to be able to see SPEN flag.  Therefore, IOWrite function
-	// should update state.reg[REG_CONTROL1] after Stop() function if SPEN bit is cleared.
-	if(true==state.spriteBusy && true==SPEN() && true==state.screenModeAcceptsSprite)
-	{
-		Render(physMemPtr->state.VRAM.data()+0x40000,physMemPtr->state.spriteRAM.data());
-	}
-	state.reg[REG_CONTROL1]&=0x7F;
-	state.spriteBusy=false;
-	townsPtr->UnscheduleDeviceCallBack(*this);
 }
 
 unsigned int TownsSprite::NumSpritesActuallyDrawn(void) const
@@ -109,6 +97,9 @@ unsigned int TownsSprite::NumSpritesActuallyDrawn(void) const
 /* virtual */ void TownsSprite::PowerOn(void)
 {
 	state.PowerOn();
+
+	townsPtr->ScheduleDeviceCallBack(*this, townsPtr->crtc.NextVSYNCTime(townsPtr->state.townsTime));
+	state.callbackType = CallbackType::VSYNC;
 }
 /* virtual */ void TownsSprite::Reset(void)
 {
@@ -124,20 +115,28 @@ unsigned int TownsSprite::NumSpritesActuallyDrawn(void) const
 		state.addressLatch=data&7;
 		break;
 	case TOWNSIO_SPRITE_DATA://              0x452, // [2] pp.128
-		if(REG_CONTROL1==state.addressLatch)
-		{
-			if(0!=(0x80&data))
-			{
-				Start();
-			}
-			else
-			{
-				Stop();
-			}
+		switch (state.addressLatch) {
+		case REG_CONTROL0:
+			state.reg[state.addressLatch] = data;
+			break;
+		case REG_CONTROL1:
+			state.reg[state.addressLatch] = data & 0x83;
+			break;
+		case REG_HORIZONTAL_OFFSET0:
+		case REG_VERTICAL_OFFSET0:
+			state.reg[state.addressLatch] = data;
+			break;
+		case REG_HORIZONTAL_OFFSET1:
+		case REG_VERTICAL_OFFSET1:
+			state.reg[state.addressLatch] = data & 1;
+			break;
+		case REG_DISPLAY_PAGE:
+			state.reg[state.addressLatch] = data & 0x88; // bit 3 saved on MA.
+			break;
+		case REG_DUMMY:
+			state.reg[state.addressLatch] = 0;
+			break;
 		}
-		// Register data must be updated after Stop() function for Shadow of the Beast.
-		// See explanation in Stop() function.
-		state.reg[state.addressLatch]=data;
 		break;
 	}
 }
@@ -165,21 +164,23 @@ unsigned int TownsSprite::NumSpritesActuallyDrawn(void) const
 	return data;
 }
 
-void TownsSprite::Render(unsigned char VRAMIn[],const unsigned char spriteRAM[]) const
+void TownsSprite::Render(unsigned char VRAMIn[],const unsigned char spriteRAM[],bool clear,int startIndex,int endIndex) const
 {
-	unsigned char *VRAMTop=VRAMIn+SPRITE_HALF_VRAM_SIZE*DisplayPage();
+	unsigned char *VRAMTop=VRAMIn+SPRITE_HALF_VRAM_SIZE*state.writePage;
 
 	// [2] pp.368 (Sprite BIOS AH=00H) tells, the top 2-lines of the VRAM page are VRAM-clear data.
 	//     So, apparently it is possible to clear the sprite page with non-0x8000 values.
 	//     FOr the time being, I just clear all VRAM with 0x8000
-	for(unsigned int offset=SPRITE_VRAM_BYTES_PER_LINE*2; offset<0x20000; offset+=2)
-	{
-		VRAMTop[offset  ]=VRAMTop[ offset   &(SPRITE_VRAM_BYTES_PER_LINE*2-1)];
-		VRAMTop[offset+1]=VRAMTop[(offset+1)&(SPRITE_VRAM_BYTES_PER_LINE*2-1)];
+	if (clear) {
+		for(unsigned int offset=SPRITE_VRAM_BYTES_PER_LINE*2; offset<0x20000; offset+=2)
+		{
+			VRAMTop[offset  ]=VRAMTop[ offset   &(SPRITE_VRAM_BYTES_PER_LINE*2-1)];
+			VRAMTop[offset+1]=VRAMTop[(offset+1)&(SPRITE_VRAM_BYTES_PER_LINE*2-1)];
+		}
 	}
 
 	auto xOffset=HOffset(),yOffset=VOffset();
-	for(unsigned int spriteIndex=FirstSpriteIndex(); spriteIndex<MAX_NUM_SPRITE_INDEX; ++spriteIndex)
+	for(unsigned int spriteIndex=startIndex; spriteIndex<endIndex; ++spriteIndex)
 	{
 		auto indexPtr=spriteRAM+SPRITERAM_INDEX_OFFSET+(spriteIndex<<3);
 
@@ -334,38 +335,51 @@ void TownsSprite::Render(unsigned char VRAMIn[],const unsigned char spriteRAM[])
 
 void TownsSprite::RunScheduledTask(unsigned long long int townsTime)
 {
-	if(true==SPEN())
-	{
-		if(true!=state.spriteBusy)
-		{
-			// Formula in [2] pp. 369 (Sprite BIOS AH=01H) sugests that:
-			// The sprite busy starts at VSYNC and takes (32+(number of sprites drawn)*75) micro seconds.
-			// unsigned long long int busyTime=32000+75000*NumSpritesActuallyDrawn();
+	auto nextVSync = townsPtr->crtc.NextVSYNCTime(townsTime);
 
-			// Should it be NumSpritesToDraw()?
-			// Afterburner2 speeds up when number of visible sprites decreases.
-			unsigned long long int busyTime=32000+75000*NumSpritesToDraw();
-
-			state.spriteBusy=true;
-			townsPtr->ScheduleDeviceCallBack(*this,townsTime+busyTime);
-		}
-		else
-		{
-			// The rendering timing can be:
-			// (1) Every time a window is re-drawn,
-			// (2) At the beginning of sprite-busy period, or
-			// (3) At the end of sprite-busy period.
-			// The CPU is not supposed to modify sprite during the sprite-busy period.
-			// However, some changes may be made not in time, then changes may be made during the sprite-busy period.
-			// Then, it is the safest to draw at the end of sprite-busy period.
-			if(true==state.screenModeAcceptsSprite)
-			{
-				Render(physMemPtr->state.VRAM.data()+0x40000,physMemPtr->state.spriteRAM.data());
+	if (state.callbackType == CallbackType::VSYNC) {
+		if (state.spriteBusy) {
+			int endIndex = MAX_NUM_SPRITE_INDEX;
+			if (townsTime < state.spriteFinishTime) {
+				endIndex -= (state.spriteFinishTime - townsTime + NANOS_SINGLE_SPRITE - 1) / NANOS_SINGLE_SPRITE;
+				endIndex = std::max(state.spriteIndex, endIndex);
 			}
-			state.spriteBusy=false;
-			townsPtr->ScheduleDeviceCallBack(*this,townsPtr->crtc.NextVSYNCEndTime(townsTime)+SPRITE_SCREEN_CLEAR_TIME);
+			Render(vram1(physMemPtr), spriteRam(physMemPtr), !state.screenCleared, state.spriteIndex, endIndex);
+			state.screenCleared = true;
+			state.spriteIndex = endIndex;
+
+			if (state.spriteFinishTime < nextVSync) {
+				state.callbackType = CallbackType::FINISH;
+				townsPtr->ScheduleDeviceCallBack(*this, state.spriteFinishTime);
+				return;
+			}
+
+		} else if (SPEN()) {
+			state.displayPage = state.writePage;
+			state.writePage = 1 - state.writePage;
+
+			state.spriteBusy = true;
+			state.spriteFinishTime = townsTime + NANOS_SCREEN_CLEAR + NumSpritesToDraw() * NANOS_SINGLE_SPRITE;
+			state.screenCleared = false;
+			state.spriteIndex = FirstSpriteIndex();
+
+			if (state.spriteFinishTime < nextVSync) {
+				state.callbackType = CallbackType::FINISH;
+				townsPtr->ScheduleDeviceCallBack(*this, state.spriteFinishTime);
+				return;
+			}
+
+		} else {
+			state.displayPage = DisplayPage();
 		}
+
+	} else if (state.callbackType == CallbackType::FINISH) {
+		Render(vram1(physMemPtr), spriteRam(physMemPtr), !state.screenCleared, state.spriteIndex, MAX_NUM_SPRITE_INDEX);
+		state.spriteBusy = false;
 	}
+
+	state.callbackType = CallbackType::VSYNC;
+	townsPtr->ScheduleDeviceCallBack(*this, nextVSync);
 }
 
 std::vector <std::string> TownsSprite::GetStatusText(const unsigned char spriteRAM[]) const

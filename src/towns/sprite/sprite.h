@@ -54,6 +54,15 @@ public:
 	NUM_REGS=8,
 	};
 
+	enum class CallbackType {
+		VSYNC, FINISH
+	};
+
+	enum {
+		NANOS_SCREEN_CLEAR = 32000,
+		NANOS_SINGLE_SPRITE = 75000
+	};
+
 	class State
 	{
 	public:
@@ -61,6 +70,13 @@ public:
 		unsigned char reg[NUM_REGS];
 		bool spriteBusy;
 		bool screenModeAcceptsSprite;
+		int writePage;
+		int displayPage;
+		unsigned long long spriteFinishTime;
+		bool screenCleared;
+		int spriteIndex;
+
+		CallbackType callbackType;
 
 		void PowerOn(void);
 		void Reset(void);
@@ -70,8 +86,6 @@ public:
 	class TownsPhysicalMemory *physMemPtr;
 
 	TownsSprite(class FMTowns *townsPtr,class TownsPhysicalMemory *physMemPtr);
-	void Start(void);
-	void Stop(void);
 
 	inline bool SPEN(void) const
 	{
@@ -103,11 +117,15 @@ public:
 	{
 		return (state.reg[REG_DISPLAY_PAGE]>>7);
 	}
+	inline unsigned int GetAddressXor(void) const
+	{
+		return state.displayPage ? SPRITE_HALF_VRAM_SIZE : 0;
+	}
 
 
 	void RunScheduledTask(unsigned long long int townsTime);
 
-	void Render(unsigned char VRAM[],const unsigned char spriteRAM[]) const;
+	void Render(unsigned char VRAM[],const unsigned char spriteRAM[],bool clear,int startIndex,int endIndex) const;
 private:
 	inline static void Transform(unsigned int &X,unsigned int &Y,unsigned int x,unsigned int y,unsigned char ROT)
 	{
@@ -158,14 +176,7 @@ public:
 
 	inline unsigned char WritingPage(void) const // For CRTC I/O
 	{
-		if(0!=(state.reg[REG_DISPLAY_PAGE]&0x10))
-		{
-			return 0;
-		}
-		else
-		{
-			return 1;
-		}
+		return state.writePage;
 	}
 
 	virtual void PowerOn(void);
