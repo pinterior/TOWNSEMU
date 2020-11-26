@@ -271,20 +271,6 @@ TownsCRTC::TownsCRTC(class FMTowns *ptr,TownsSprite *spritePtr) : Device(ptr)
 	cached=true;
 }
 
-void TownsCRTC::UpdateSpriteHardware(void)
-{
-	if(true==InSinglePageMode() ||
-	   16!=GetPageBitsPerPixel(1) ||
-	   512!=GetPageBytesPerLine(1))
-	{
-		spritePtr->state.screenModeAcceptsSprite=false;
-	}
-	else
-	{
-		spritePtr->state.screenModeAcceptsSprite=true;
-	}
-}
-
 
 // Let's say 60 frames per sec.
 // 1 frame takes 16.7ms.
@@ -750,7 +736,6 @@ void TownsCRTC::MEMIOWriteFMRVRAMDisplayMode(unsigned char data)
 		{
 			townsPtr->OnCRTC_HST_Write();
 		}
-		UpdateSpriteHardware();
 		break;
 	case TOWNSIO_CRTC_DATA_HIGH://           0x443,
 		state.crtcReg[state.crtcAddrLatch]&=0x00ff;
@@ -763,7 +748,6 @@ void TownsCRTC::MEMIOWriteFMRVRAMDisplayMode(unsigned char data)
 		{
 			WriteCR0(data<<8);
 		}
-		UpdateSpriteHardware();
 		break;
 
 
@@ -785,7 +769,6 @@ void TownsCRTC::MEMIOWriteFMRVRAMDisplayMode(unsigned char data)
 				state.showPage0448[1]=(0!=(data&0x04));
 			}
 		}
-		UpdateSpriteHardware();
 		break;
 
 	case TOWNSIO_MX_HIRES://            0x470,

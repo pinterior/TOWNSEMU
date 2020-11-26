@@ -307,8 +307,6 @@ public:
 
 	TownsCRTC(class FMTowns *ptr,class TownsSprite *spritePtr);
 
-	void UpdateSpriteHardware(void);
-
 	enum
 	{
 		// VSYNC_CYCLE is 1670000, but it is close enough to 0x1000000(16777216)

@@ -38,7 +38,6 @@ void TownsSprite::State::PowerOn(void)
 		r=0;
 	}
 	spriteBusy=false;
-	screenModeAcceptsSprite=false;
 	writePage = 0;
 	displayPage = 0;
 }
@@ -398,8 +397,6 @@ std::vector <std::string> TownsSprite::GetStatusText(const unsigned char spriteR
 	text.back()+=(true==state.spriteBusy ? "1" : "0");
 	text.back()+=" SPEN:";
 	text.back()+=(0!=(state.reg[REG_CONTROL1]&0x80) ? "1" : "0");
-	text.back()+=" Screen Mode Accepts Sprite:";
-	text.back()+=(true==state.screenModeAcceptsSprite ? "1" : "0");
 	text.back()+=" #DRAW:";
 	text.back()+=cpputil::Itoa(NumSpritesToDraw());
 	text.back()+=" 1stINDEX:";
