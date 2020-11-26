@@ -169,7 +169,6 @@ void TownsSprite::Render(unsigned char VRAMIn[],const unsigned char spriteRAM[],
 
 	// [2] pp.368 (Sprite BIOS AH=00H) tells, the top 2-lines of the VRAM page are VRAM-clear data.
 	//     So, apparently it is possible to clear the sprite page with non-0x8000 values.
-	//     FOr the time being, I just clear all VRAM with 0x8000
 	if (clear) {
 		for(unsigned int offset=SPRITE_VRAM_BYTES_PER_LINE*2; offset<0x20000; offset+=2)
 		{
