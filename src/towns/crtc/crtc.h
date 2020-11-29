@@ -322,16 +322,21 @@ public:
 	bool InVSYNC(const unsigned long long int townsTime) const;
 	bool InHSYNC(const unsigned long long int townsTime) const;
 
+	/*
+	 * 0
+	 * |<---------- VSYNC_CYCLE ---------->|
+	 * |<-- CRT_VERTICAL_DURATION -->|VSYNC|
+	 * |<-CHD->|H|.........|<-CHD->|H|-----|
+	 */
 	inline long long int NextVSYNCTime(long long int townsTime) const
 	{
-		long long int mod=townsTime%VSYNC_CYCLE;
-		townsTime-=mod;
-		townsTime+=VSYNC_CYCLE-(VSYNC_CYCLE-CRT_VERTICAL_DURATION);
-		return townsTime;
+		long long int mod = (townsTime + (VSYNC_CYCLE - CRT_VERTICAL_DURATION)) % VSYNC_CYCLE;
+		return townsTime - mod + VSYNC_CYCLE;
 	}
 	inline long long int NextVSYNCEndTime(long long int townsTime) const
 	{
-		return NextVSYNCTime(townsTime)+(VSYNC_CYCLE-CRT_VERTICAL_DURATION);
+		long long int mod = townsTime % VSYNC_CYCLE;
+		return townsTime - mod + VSYNC_CYCLE;
 	}
 	inline void ProcessVSYNCIRQ(unsigned long long int townsTime)
 	{
