@@ -77,7 +77,7 @@ void TownsRenderingThread::CheckRenderingTimer(FMTowns &towns,TownsRender &rende
 		this->chaseHQPaletteCopy=towns.crtc.chaseHQPalette;
 
 		state=STATE_RENDERING;
-		towns.var.nextRenderingTime=towns.state.townsTime+TOWNS_RENDERING_FREQUENCY;
+		towns.var.nextRenderingTime = towns.crtc.NextVSYNCEndTime(towns.state.townsTime);// +TOWNS_RENDERING_FREQUENCY;
 
 		checkImageAfterThisTIme=towns.state.townsTime+3000000; // Give sub-thread some time.
 

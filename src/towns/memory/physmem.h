@@ -352,6 +352,8 @@ public:
 		std::vector <unsigned char> waveRAM;
 		unsigned char CMOSRAM[TOWNS_CMOS_SIZE];
 
+		size_t vramWrites[4] = { 0 };
+
 		// PCMCIA memory card.
 		ICMemoryCard memCard;
 		unsigned int memCardBank=0;
@@ -507,18 +509,27 @@ void TownsVRAMAccessTemplate <DISPLACEMENT>::StoreByte(unsigned int physAddr,uns
 {
 	auto &state=physMemPtr->state;
 	state.VRAM[((physAddr+DISPLACEMENT)&TOWNSADDR_VRAM_AND)]=data;
+
+	auto addr = ((physAddr + DISPLACEMENT) & TOWNSADDR_VRAM_AND);
+	++state.vramWrites[addr >> 17];
 }
 template <const uint32_t DISPLACEMENT>
 void TownsVRAMAccessTemplate <DISPLACEMENT>::StoreWord(unsigned int physAddr,unsigned int data)
 {
 	auto &state=physMemPtr->state;
 	cpputil::PutWord(state.VRAM.data()+((physAddr+DISPLACEMENT)&TOWNSADDR_VRAM_AND),(unsigned short)data);
+
+	auto addr = ((physAddr + DISPLACEMENT) & TOWNSADDR_VRAM_AND);
+	++state.vramWrites[addr >> 17];
 }
 template <const uint32_t DISPLACEMENT>
 void TownsVRAMAccessTemplate <DISPLACEMENT>::StoreDword(unsigned int physAddr,unsigned int data)
 {
 	auto &state=physMemPtr->state;
 	cpputil::PutDword(state.VRAM.data()+((physAddr+DISPLACEMENT)&TOWNSADDR_VRAM_AND),data);
+
+	auto addr = ((physAddr + DISPLACEMENT) & TOWNSADDR_VRAM_AND);
+	++state.vramWrites[addr >> 17];
 }
 
 

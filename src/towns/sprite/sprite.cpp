@@ -119,6 +119,15 @@ unsigned int TownsSprite::NumSpritesActuallyDrawn(void) const
 			state.reg[state.addressLatch] = data;
 			break;
 		case REG_CONTROL1:
+			if (state.reg[state.addressLatch] != data) {
+				printf("VRAM: %d %d %d %d\n",
+					townsPtr->physMem.state.vramWrites[0],
+					townsPtr->physMem.state.vramWrites[1],
+					townsPtr->physMem.state.vramWrites[2],
+					townsPtr->physMem.state.vramWrites[3]);
+				std::fill(std::begin(townsPtr->physMem.state.vramWrites), std::end(townsPtr->physMem.state.vramWrites), 0);
+				printf("%lld: SPRITE CONTROL#1: %02x -> %02x\n", townsPtr->state.townsTime, state.reg[REG_CONTROL1], data & 0x83);
+			}
 			state.reg[state.addressLatch] = data & 0x83;
 			break;
 		case REG_HORIZONTAL_OFFSET0:
@@ -335,6 +344,17 @@ void TownsSprite::RunScheduledTask(unsigned long long int townsTime)
 {
 	auto nextVSync = townsPtr->crtc.NextVSYNCTime(townsTime);
 
+	printf("VRAM: %d %d %d %d\n",
+		townsPtr->physMem.state.vramWrites[0],
+		townsPtr->physMem.state.vramWrites[1],
+		townsPtr->physMem.state.vramWrites[2],
+		townsPtr->physMem.state.vramWrites[3]);
+	std::fill(std::begin(townsPtr->physMem.state.vramWrites), std::end(townsPtr->physMem.state.vramWrites), 0);
+	printf("%lld(%d): SPEN:%d DP:%d (BUSY:%d w:%d d:%d) -> ",
+		townsTime, state.callbackType,
+		SPEN(), DisplayPage(),
+		state.spriteBusy, state.writePage, state.displayPage);
+
 	if (state.callbackType == CallbackType::VSYNC) {
 		if (state.spriteBusy) {
 			int endIndex = MAX_NUM_SPRITE_INDEX;
@@ -342,13 +362,15 @@ void TownsSprite::RunScheduledTask(unsigned long long int townsTime)
 				endIndex -= (state.spriteFinishTime - townsTime + NANOS_SINGLE_SPRITE - 1) / NANOS_SINGLE_SPRITE;
 				endIndex = std::max(state.spriteIndex, endIndex);
 			}
-			Render(vram1(physMemPtr), spriteRam(physMemPtr), !state.screenCleared, state.spriteIndex, endIndex);
+/*			Render(vram1(physMemPtr), spriteRam(physMemPtr), !state.screenCleared, state.spriteIndex, endIndex);
 			state.screenCleared = true;
-			state.spriteIndex = endIndex;
+			state.spriteIndex = endIndex;*/
 
 			if (state.spriteFinishTime < nextVSync) {
 				state.callbackType = CallbackType::FINISH;
 				townsPtr->ScheduleDeviceCallBack(*this, state.spriteFinishTime);
+
+				printf("(BUSY:%d w:%d d:%d)\n", state.spriteBusy, state.writePage, state.displayPage);
 				return;
 			}
 
@@ -364,6 +386,8 @@ void TownsSprite::RunScheduledTask(unsigned long long int townsTime)
 			if (state.spriteFinishTime < nextVSync) {
 				state.callbackType = CallbackType::FINISH;
 				townsPtr->ScheduleDeviceCallBack(*this, state.spriteFinishTime);
+
+				printf("(BUSY:%d w:%d d:%d)\n", state.spriteBusy, state.writePage, state.displayPage);
 				return;
 			}
 
@@ -378,6 +402,8 @@ void TownsSprite::RunScheduledTask(unsigned long long int townsTime)
 
 	state.callbackType = CallbackType::VSYNC;
 	townsPtr->ScheduleDeviceCallBack(*this, nextVSync);
+
+	printf("(BUSY:%d w:%d d:%d)\n", state.spriteBusy, state.writePage, state.displayPage);
 }
 
 std::vector <std::string> TownsSprite::GetStatusText(const unsigned char spriteRAM[]) const

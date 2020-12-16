@@ -575,18 +575,14 @@ unsigned int TownsCRTC::GetPageVRAMAddressOffset(unsigned char page) const
 {
 	// [2] pp. 145
 	auto FA0=state.crtcReg[REG_FA0+page*4];
-	int spriteXor = 0;
-	if (page == 1) {
-		spriteXor = townsPtr->sprite.GetAddressXor();
-	}
 	switch(GetPageBitsPerPixel(page))
 	{
 	case 4:
-		return FA0*4 ^ spriteXor;  // 8 pixels for 1 count.
+		return FA0*4;  // 8 pixels for 1 count.
 	case 8:
-		return FA0*8 ^ spriteXor;  // 8 pixels for 1 count.
+		return FA0*8;  // 8 pixels for 1 count.
 	case 16:
-		return (LowResCrtcIsInSinglePageMode() ? FA0*8 : FA0*4) ^ spriteXor; // 4 pixels or 2 pixels depending on the single-page or 2-page mode.
+		return LowResCrtcIsInSinglePageMode() ? FA0*8 : FA0*4; // 4 pixels or 2 pixels depending on the single-page or 2-page mode.
 	}
 	return 0;
 }
@@ -646,9 +642,17 @@ void TownsCRTC::MakeLowResPageLayerInfo(Layer &layer,unsigned char page) const
 	layer.zoom2x=GetLowResPageZoom2X(page);
 	layer.VRAMAddr=0x40000*page;
 	layer.VRAMOffset=GetPageVRAMAddressOffset(page);
-	layer.FMRVRAMOffset=(0==page ? state.FMRVRAMOffset : 0); // Can be applied only to layer 0 in two-layer mode, or in the single-page mode.  Either way page==0.
+	if (page == 0) {
+		layer.FMRVRAMOffset = state.FMRVRAMOffset; // Can be applied only to layer 0 in two-layer mode, or in the single-page mode.  Either way page==0.
+	} else {
+		layer.FMRVRAMOffset = townsPtr->sprite.state.displayPage ? TOWNS_FMRMODE_VRAM_OFFSET : 0;
+	}
 	layer.FMRGVRAMMask=(0==page ? state.FMRGVRAMDisplayPlanes : 0x0F); // GVRAM Planes works as a mask in 4-bit color mode for VRAM layer 0 only.
 	layer.bytesPerLine=GetPageBytesPerLine(page);
+
+	if (page == 1) {
+		printf("%08x + %06x\n", layer.VRAMOffset, layer.FMRVRAMOffset);
+	}
 
 	// VRAMSkipBytes looks to depend on raw zoom factor.
 	auto rawZoomX=((state.crtcReg[REG_ZOOM]>>(8*page))&15)+1;
@@ -730,6 +734,15 @@ void TownsCRTC::MEMIOWriteFMRVRAMDisplayMode(unsigned char data)
 		state.crtcAddrLatch=data&0x1f;
 		break;
 	case TOWNSIO_CRTC_DATA_LOW://            0x442,
+		if (state.crtcAddrLatch == 0x15) {
+			printf("VRAM: %d %d %d %d\n",
+				townsPtr->physMem.state.vramWrites[0],
+				townsPtr->physMem.state.vramWrites[1],
+				townsPtr->physMem.state.vramWrites[2],
+				townsPtr->physMem.state.vramWrites[3]);
+			std::fill(std::begin(townsPtr->physMem.state.vramWrites), std::end(townsPtr->physMem.state.vramWrites), 0);
+			printf("%lld: FA1(442): %04x -> %04x\n", townsPtr->state.townsTime, state.crtcReg[state.crtcAddrLatch], (state.crtcReg[state.crtcAddrLatch] & 0xff00) | (data & 0xff));
+		}
 		state.crtcReg[state.crtcAddrLatch]&=0xff00;
 		state.crtcReg[state.crtcAddrLatch]|=(data&0xff);
 		if(REG_HST==state.crtcAddrLatch)
@@ -738,6 +751,15 @@ void TownsCRTC::MEMIOWriteFMRVRAMDisplayMode(unsigned char data)
 		}
 		break;
 	case TOWNSIO_CRTC_DATA_HIGH://           0x443,
+		if (state.crtcAddrLatch == 0x15) {
+			printf("VRAM: %d %d %d %d\n",
+				townsPtr->physMem.state.vramWrites[0],
+				townsPtr->physMem.state.vramWrites[1],
+				townsPtr->physMem.state.vramWrites[2],
+				townsPtr->physMem.state.vramWrites[3]);
+			std::fill(std::begin(townsPtr->physMem.state.vramWrites), std::end(townsPtr->physMem.state.vramWrites), 0);
+			printf("%lld: FA1(443): %04x -> %04x\n", townsPtr->state.townsTime, state.crtcReg[state.crtcAddrLatch], (state.crtcReg[state.crtcAddrLatch] & 0x00ff) | ((data & 0xff) << 8));
+		}
 		state.crtcReg[state.crtcAddrLatch]&=0x00ff;
 		state.crtcReg[state.crtcAddrLatch]|=((data&0xff)<<8);
 		if(REG_HST==state.crtcAddrLatch)
